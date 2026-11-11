@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default-Deny Safety Net:
+    // Per Phase 6 security requirements, Firebase Authentication is disabled and
+    // ALL client-side access to Firestore is strictly denied.
+    // Server-side persistence uses privileged credentials when available or falls back to memory.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /cache_entries/{cacheKey} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /rate_limit_buckets/{bucketKey} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /eval_runs/{runId} {
+      allow get, list, create, update, delete: if false;
+    }
+  }
+}

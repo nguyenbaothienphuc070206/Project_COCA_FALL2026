@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="ShelfPath Icon">
+  <rect width="128" height="128" rx="28" fill="#1A1D24" />
+  <rect x="8" y="8" width="112" height="112" rx="22" fill="#F7F5EE" stroke="#E2DDD0" stroke-width="2" />
+  <!-- Editorial Book Spines on a Rising Path -->
+  <rect x="26" y="62" width="18" height="40" rx="4" fill="#1D212A" />
+  <rect x="50" y="46" width="18" height="56" rx="4" fill="#C8433C" />
+  <rect x="74" y="30" width="20" height="72" rx="4" fill="#146C43" />
+  <!-- Verification Check Badge -->
+  <circle cx="96" cy="34" r="14" fill="#C8433C" stroke="#F7F5EE" stroke-width="3" />
+  <path d="M90 34.5L94 38.5L102.5 30" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- Shelf Base Line -->
+  <path d="M20 102H108" stroke="#1A1D24" stroke-width="4" stroke-linecap="round" />
+</svg>

@@ -1,0 +1,847 @@
+openapi: 3.1.0
+info:
+  title: ShelfPath Verified Reading Roadmap API
+  version: "1.0.0"
+  summary: Topic-first book recommendation, fail-closed catalog verification, MMR ranking, and Evaluation Lab REST + SSE API.
+  description: |
+    Single-source-of-truth OpenAPI 3.1 specification for ShelfPath.
+    Synchronized 1-to-1 with `/src/lib/schemas/apiContract.ts` and `/src/types/book.ts`.
+    Every response includes `X-API-Version: 1` and `X-Request-Id`.
+    Error responses strictly follow `{ error: { code, message, requestId, retryAfterSeconds? } }`.
+servers:
+  - url: http://localhost:3000
+    description: Local / AI Studio Development Server
+
+components:
+  headers:
+    X-API-Version:
+      description: Contract version header (always "1").
+      schema:
+        type: string
+        const: "1"
+    X-Request-Id:
+      description: Unique correlation identifier for tracing requests and error envelopes.
+      schema:
+        type: string
+        example: req_m9z8x7_4a2f1c
+
+  schemas:
+    ReaderLevel:
+      type: string
+      enum: [beginner, intermediate, advanced]
+
+    BookLengthPreference:
+      type: string
+      enum: [any, short, medium, deep]
+
+    BookLanguagePreference:
+      type: string
+      enum: [any, en, vi]
+
+    UserPreferences:
+      type: object
+      required: [topic, level, length, language, adventurousness]
+      properties:
+        topic:
+          type: string
+          minLength: 1
+          maxLength: 160
+        level:
+          $ref: "#/components/schemas/ReaderLevel"
+        length:
+          $ref: "#/components/schemas/BookLengthPreference"
+        language:
+          $ref: "#/components/schemas/BookLanguagePreference"
+        adventurousness:
+          type: number
+          minimum: 0
+          maximum: 100
+
+    VerificationDetail:
+      type: object
+      required:
+        - status
+        - matchedSources
+        - normalizedQueryTitle
+        - normalizedMatchedTitle
+        - titleSimilarityScore
+        - authorSurnameMatched
+        - checkedAtIso
+      properties:
+        status:
+          type: string
+          const: verified
+        matchedSources:
+          type: string
+          enum: [open_library, google_books, both]
+        matchedSourcesList:
+          type: array
+          items:
+            type: string
+            enum: [open_library, google_books]
+        matchConfidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        normalizedQueryTitle:
+          type: string
+        normalizedMatchedTitle:
+          type: string
+        titleSimilarityScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        authorSurnameMatched:
+          type: string
+        openLibraryId:
+          type: string
+        openLibraryUrl:
+          type: string
+          format: uri
+        googleBooksId:
+          type: string
+        googleBooksUrl:
+          type: string
+          format: uri
+        isbn13:
+          type: string
+        firstPublishYear:
+          type: integer
+        checkedAtIso:
+          type: string
+          format: date-time
+        fromCache:
+          type: boolean
+
+    VietnameseEditionInfo:
+      type: object
+      required: [available]
+      properties:
+        available:
+          type: boolean
+        vietnameseTitle:
+          type: string
+        publisherOrNoteVi:
+          type: string
+        publisherOrNoteEn:
+          type: string
+        sourceUrl:
+          type: string
+          format: uri
+        sourceName:
+          type: string
+          enum: [open_library, google_books]
+        checkedAtIso:
+          type: string
+          format: date-time
+
+    InterpretedRefinementChip:
+      type: object
+      required: [id, dimension, value, labelVi, labelEn]
+      properties:
+        id:
+          type: string
+        dimension:
+          type: string
+          enum: [lengthDelta, practicalVsTheory, levelDelta, emphasisTopic, excludeAuthor]
+        value:
+          type: string
+        labelVi:
+          type: string
+        labelEn:
+          type: string
+
+    RefinementAdjustment:
+      type: object
+      required:
+        - lengthDelta
+        - practicalVsTheory
+        - levelDelta
+        - emphasisTopics
+        - excludeAuthors
+      properties:
+        lengthDelta:
+          type: string
+          enum: [shorter, longer, none]
+        practicalVsTheory:
+          type: string
+          enum: [more_practical, more_theoretical, balanced]
+        levelDelta:
+          type: string
+          enum: [easier, harder, same]
+        emphasisTopics:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+        excludeAuthors:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+        chips:
+          type: array
+          items:
+            $ref: "#/components/schemas/InterpretedRefinementChip"
+
+    VerifiedBook:
+      type: object
+      required:
+        - id
+        - topicCategory
+        - title
+        - authors
+        - pageCount
+        - language
+        - level
+        - roadmapStepOrder
+        - roadmapStageLabelVi
+        - roadmapStageLabelEn
+        - roadmapStepReasonVi
+        - roadmapStepReasonEn
+        - shortDescriptionVi
+        - shortDescriptionEn
+        - matchReasonVi
+        - matchReasonEn
+        - coverColorHex
+        - verification
+        - vietnameseEdition
+        - relevanceScore
+        - diversityBonus
+      properties:
+        id:
+          type: string
+        topicCategory:
+          type: string
+        title:
+          type: string
+        subtitle:
+          type: string
+        authors:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        pageCount:
+          type: integer
+          minimum: 1
+        language:
+          type: string
+          enum: [en, vi, bilingual]
+        level:
+          $ref: "#/components/schemas/ReaderLevel"
+        roadmapStepOrder:
+          type: integer
+          minimum: 1
+        roadmapStageLabelVi:
+          type: string
+        roadmapStageLabelEn:
+          type: string
+        roadmapStepReasonVi:
+          type: string
+        roadmapStepReasonEn:
+          type: string
+        shortDescriptionVi:
+          type: string
+        shortDescriptionEn:
+          type: string
+        matchReasonVi:
+          type: string
+        matchReasonEn:
+          type: string
+        coverColorHex:
+          type: string
+        verification:
+          $ref: "#/components/schemas/VerificationDetail"
+        vietnameseEdition:
+          $ref: "#/components/schemas/VietnameseEditionInfo"
+        relevanceScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        diversityBonus:
+          type: number
+          minimum: 0
+          maximum: 1
+        groundingSourceUrl:
+          type: string
+        diffStatus:
+          type: string
+          enum: [moved_up, moved_down, new, unchanged]
+        previousStepOrder:
+          type: integer
+
+    RejectedCandidateLog:
+      type: object
+      required: [candidateTitle, candidateAuthor, reasonVi, reasonEn, timestampIso]
+      properties:
+        candidateTitle:
+          type: string
+        candidateAuthor:
+          type: string
+        failureReasonCode:
+          type: string
+          enum: [not_found, author_mismatch, low_title_similarity, source_unavailable]
+        reasonVi:
+          type: string
+        reasonEn:
+          type: string
+        timestampIso:
+          type: string
+          format: date-time
+
+    PipelineStats:
+      type: object
+      required: [candidatesFound, candidatesVerified, candidatesRemoved, currentStage]
+      properties:
+        candidatesFound:
+          type: integer
+        candidatesVerified:
+          type: integer
+        candidatesRemoved:
+          type: integer
+        currentStage:
+          type: string
+          enum: [searching, extracting, verifying, ranking, building_path, completed]
+        queriesExecuted:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        oneSourceDownWarning:
+          type: string
+
+    RecommendationSet:
+      type: object
+      required: [id, isSampleData, preferences, books, rejectedCandidates, stats, createdAtIso]
+      properties:
+        id:
+          type: string
+        isSampleData:
+          type: boolean
+        preferences:
+          $ref: "#/components/schemas/UserPreferences"
+        books:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerifiedBook"
+        rejectedCandidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/RejectedCandidateLog"
+        stats:
+          $ref: "#/components/schemas/PipelineStats"
+        createdAtIso:
+          type: string
+          format: date-time
+        activeAdjustment:
+          $ref: "#/components/schemas/RefinementAdjustment"
+
+    CreateRecommendationRequest:
+      type: object
+      required: [preferences]
+      properties:
+        preferences:
+          $ref: "#/components/schemas/UserPreferences"
+        useMockMode:
+          type: boolean
+        simulateOutage:
+          type: boolean
+
+    ServerStatusResponse:
+      type: object
+      required:
+        - mode
+        - hasGeminiKey
+        - hasGoogleBooksKey
+        - hasOpenLibraryEmail
+        - warnings
+        - availableSampleBooks
+      properties:
+        mode:
+          type: string
+          enum: [MOCK_MODE, LIVE_PIPELINE]
+        hasGeminiKey:
+          type: boolean
+        hasGoogleBooksKey:
+          type: boolean
+        hasOpenLibraryEmail:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            type: string
+        availableSampleBooks:
+          type: integer
+        persistenceBackend:
+          type: string
+          enum: [firestore, memory_fallback]
+
+    RefineRecommendationRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 500
+        removeChipId:
+          type: string
+          maxLength: 120
+        clearAllAdjustments:
+          type: boolean
+        useMockMode:
+          type: boolean
+
+    RefineRecommendationResponse:
+      type: object
+      required:
+        - recommendationSet
+        - adjustment
+        - keptPreviousBecauseEmpty
+        - wasTruncated
+        - blockedInjectionAttempt
+      properties:
+        recommendationSet:
+          $ref: "#/components/schemas/RecommendationSet"
+        adjustment:
+          $ref: "#/components/schemas/RefinementAdjustment"
+        keptPreviousBecauseEmpty:
+          type: boolean
+        wasTruncated:
+          type: boolean
+        blockedInjectionAttempt:
+          type: boolean
+
+    DismissRecommendationRequest:
+      type: object
+      required: [bookId]
+      properties:
+        bookId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        undo:
+          type: boolean
+        useMockMode:
+          type: boolean
+
+    DismissRecommendationResponse:
+      type: object
+      required: [recommendationSet]
+      properties:
+        recommendationSet:
+          $ref: "#/components/schemas/RecommendationSet"
+        dismissedBook:
+          oneOf:
+            - $ref: "#/components/schemas/VerifiedBook"
+            - type: "null"
+        replacementBook:
+          oneOf:
+            - $ref: "#/components/schemas/VerifiedBook"
+            - type: "null"
+        undone:
+          type: boolean
+
+    BookVerificationResponse:
+      type: object
+      required: [bookId, title, authors, verification, vietnameseEdition]
+      properties:
+        bookId:
+          type: string
+        title:
+          type: string
+        authors:
+          type: array
+          items:
+            type: string
+        verification:
+          $ref: "#/components/schemas/VerificationDetail"
+        vietnameseEdition:
+          $ref: "#/components/schemas/VietnameseEditionInfo"
+
+    BookEditionsResponse:
+      type: object
+      required: [bookId, vietnameseEdition]
+      properties:
+        bookId:
+          type: string
+        vietnameseEdition:
+          $ref: "#/components/schemas/VietnameseEditionInfo"
+
+    ApiErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+              enum:
+                - INVALID_JSON_BODY
+                - INVALID_PREFERENCES
+                - INVALID_REFINE_PAYLOAD
+                - INVALID_DISMISS_PAYLOAD
+                - INVALID_EVAL_PAYLOAD
+                - INVALID_RUBRIC_VALUES
+                - INVALID_SAVE_PAYLOAD
+                - INVALID_IMPORT_RUN_FORMAT
+                - UNKNOWN_ACTION
+                - RECOMMENDATION_SET_NOT_FOUND
+                - SESSION_NOT_FOUND
+                - BOOK_VERIFICATION_NOT_FOUND
+                - EVAL_RUN_NOT_FOUND
+                - EVAL_DISABLED
+                - RATE_LIMITED
+                - SOURCE_OUTAGE_FAIL_CLOSED
+                - MISSING_GEMINI_KEY
+                - PIPELINE_ERROR
+                - REFINE_ERROR
+                - DISMISS_ERROR
+                - EDITION_LOOKUP_ERROR
+                - INTERNAL_SERVER_ERROR
+            message:
+              type: string
+            requestId:
+              type: string
+            retryAfterSeconds:
+              type: integer
+
+paths:
+  /api/recommendations:
+    get:
+      summary: Query server configuration status or retrieve a recommendation set by ?id=
+      operationId: getRecommendationsStatusOrById
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Server status or RecommendationSet
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ServerStatusResponse"
+                  - $ref: "#/components/schemas/RecommendationSet"
+        "404":
+          description: Recommendation set not found when ?id= is provided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+    post:
+      summary: Execute the 6-stage recommendation & verification pipeline (JSON or SSE stream)
+      operationId: createRecommendations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecommendationRequest"
+      responses:
+        "200":
+          description: Completed RecommendationSet (JSON) or progressive SSE stream (`text/event-stream`)
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationSet"
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events stream (`stage`, `candidate_found`, `book_verified`, `book_removed`, `done`, `error`). See `docs/API.md`.
+        "400":
+          description: Invalid preferences or JSON body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+        "429":
+          description: Per-IP rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+        "503":
+          description: Verification catalog sources unreachable (Fail-Closed) or missing required secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+
+  /api/recommendations/{id}:
+    get:
+      summary: Retrieve an existing recommendation set by ID
+      operationId: getRecommendationById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: RecommendationSet found
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationSet"
+        "404":
+          description: RecommendationSet not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+
+  /api/recommendations/{id}/refine:
+    post:
+      summary: Refine a recommendation set in natural language or remove an active chip
+      operationId: refineRecommendationSet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefineRecommendationRequest"
+      responses:
+        "200":
+          description: Re-ranked verified recommendation set with diff indicators and chips
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefineRecommendationResponse"
+        "400":
+          description: Invalid refinement payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+
+  /api/recommendations/{id}/dismiss:
+    post:
+      summary: Dismiss a book with an embedding avoid penalty or undo a dismissal
+      operationId: dismissBookFromRecommendationSet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DismissRecommendationRequest"
+      responses:
+        "200":
+          description: Updated RecommendationSet with verified replacement book or restored book
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DismissRecommendationResponse"
+        "400":
+          description: Invalid dismiss payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+
+  /api/books/{bookId}/verification:
+    get:
+      summary: Retrieve catalog verification audit metadata for a specific verified book
+      operationId: getBookVerificationDetail
+      parameters:
+        - name: bookId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Book verification audit record
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookVerificationResponse"
+        "404":
+          description: Book verification record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+
+  /api/books/{bookId}/editions:
+    get:
+      summary: Check Open Library (language:vie) and Google Books (langRestrict=vi) for a Vietnamese edition
+      operationId: getBookVietnameseEditions
+      parameters:
+        - name: bookId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Vietnamese edition availability and catalog link
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookEditionsResponse"
+
+  /api/eval/runs:
+    get:
+      summary: List prepared evaluation profiles and completed/running benchmark runs (guarded by EVAL_ENABLED)
+      operationId: listEvalRuns
+      responses:
+        "200":
+          description: Evaluation profiles, runs, and persistence status
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "403":
+          description: Evaluation Lab disabled (`EVAL_ENABLED=false`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+    post:
+      summary: Start an asynchronous evaluation run across Configurations A, B, C or import a previous run JSON
+      operationId: startOrImportEvalRun
+      responses:
+        "202":
+          description: Asynchronous evaluation run started
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "200":
+          description: Previous evaluation run JSON imported
+        "400":
+          description: Invalid import format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+        "403":
+          description: Evaluation Lab disabled (`EVAL_ENABLED=false`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+
+  /api/eval/runs/{id}:
+    get:
+      summary: Retrieve evaluation run progress and aggregate metrics by run ID
+      operationId: getEvalRunById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: EvalRunRecord progress and metrics
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "404":
+          description: Evaluation run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+    post:
+      summary: Submit a tester rubric rating (1..5) or record an evaluation-session book save
+      operationId: submitEvalRubricOrSave
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated EvalRunRecord with recalculated aggregate statistics
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/X-API-Version"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          description: Invalid rubric score or save payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"
+        "404":
+          description: Evaluation run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorEnvelope"

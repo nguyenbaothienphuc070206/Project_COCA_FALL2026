@@ -1,0 +1,6 @@
+{
+  "name": "ShelfPath — Lộ Trình Đọc Sách Đã Kiểm Chứng",
+  "description": "Hệ thống gợi ý và xây dựng lộ trình đọc sách tự học cho sinh viên, kiểm chứng 100% qua Open Library và Google Books.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

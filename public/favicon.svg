@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ShelfPath Favicon">
+  <rect width="64" height="64" rx="14" fill="#1A1D24" />
+  <rect x="12" y="30" width="10" height="22" rx="2" fill="#F7F5EE" />
+  <rect x="26" y="21" width="10" height="31" rx="2" fill="#C8433C" />
+  <rect x="40" y="12" width="11" height="40" rx="2" fill="#4ADE80" />
+  <path d="M10 52H54" stroke="#F7F5EE" stroke-width="3" stroke-linecap="round" />
+</svg>

@@ -1,0 +1,121 @@
+{
+  "entities": {
+    "VerifiedBookCacheRecord": {
+      "title": "VerifiedBookCacheRecord",
+      "description": "Server-side cached verified book metadata or Vietnamese edition lookup record with TTL expiration. Contains zero personal data or user text.",
+      "type": "object",
+      "properties": {
+        "cacheKey": {
+          "type": "string",
+          "description": "Normalized cache key (e.g., normalizedTitle::authorSurname or bookId)",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-:.]+$"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Cache namespace (verified_book or vn_edition)",
+          "enum": ["verified_book", "vn_edition"]
+        },
+        "payloadJson": {
+          "type": "string",
+          "description": "Serialized verified catalog metadata",
+          "minLength": 2,
+          "maxLength": 32768
+        },
+        "createdAtIso": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 creation timestamp"
+        },
+        "expiresAtMs": {
+          "type": "number",
+          "description": "Epoch milliseconds when this cache entry expires"
+        }
+      },
+      "required": ["cacheKey", "namespace", "payloadJson", "createdAtIso", "expiresAtMs"]
+    },
+    "RateLimitBucketRecord": {
+      "title": "RateLimitBucketRecord",
+      "description": "Server-side sliding-window aggregate counter per hashed client key with TTL expiration.",
+      "type": "object",
+      "properties": {
+        "bucketKey": {
+          "type": "string",
+          "description": "Hashed/anonymized rate-limit bucket key",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hitTimestampsMs": {
+          "type": "array",
+          "description": "Bounded list of request epoch timestamps within the current window"
+        },
+        "windowMs": {
+          "type": "number",
+          "description": "Sliding window duration in milliseconds"
+        },
+        "expiresAtMs": {
+          "type": "number",
+          "description": "Epoch milliseconds when this rate-limit bucket expires"
+        }
+      },
+      "required": ["bucketKey", "hitTimestampsMs", "windowMs", "expiresAtMs"]
+    },
+    "EvaluationRunRecord": {
+      "title": "EvaluationRunRecord",
+      "description": "Server-side Evaluation Lab benchmark run record (Configurations A, B, C, aggregate metrics, and tester rubric ratings). Contains no personal user data.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Evaluation run identifier",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "status": {
+          "type": "string",
+          "description": "Execution status of the evaluation run",
+          "enum": ["running", "completed", "failed"]
+        },
+        "modelName": {
+          "type": "string",
+          "description": "Gemini model identifier evaluated",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAtIso": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 start timestamp"
+        },
+        "expiresAtMs": {
+          "type": "number",
+          "description": "Epoch milliseconds when this evaluation run expires"
+        },
+        "payloadJson": {
+          "type": "string",
+          "description": "Serialized EvalRunRecord payload",
+          "minLength": 2,
+          "maxLength": 524288
+        }
+      },
+      "required": ["id", "status", "modelName", "createdAtIso", "expiresAtMs", "payloadJson"]
+    }
+  },
+  "firestore": {
+    "/cache_entries/{cacheKey}": {
+      "schema": { "$ref": "#/entities/VerifiedBookCacheRecord" },
+      "description": "Server-only TTL cache for verified book metadata and Vietnamese edition records."
+    },
+    "/rate_limit_buckets/{bucketKey}": {
+      "schema": { "$ref": "#/entities/RateLimitBucketRecord" },
+      "description": "Server-only sliding-window rate limit buckets with expiresAtMs cleanup."
+    },
+    "/eval_runs/{runId}": {
+      "schema": { "$ref": "#/entities/EvaluationRunRecord" },
+      "description": "Server-only Evaluation Lab run records and aggregate metrics."
+    }
+  }
+}

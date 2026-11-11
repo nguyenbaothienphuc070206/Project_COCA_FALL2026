@@ -1,0 +1,102 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --sp-bg-backdrop: #DCD9CE;
+  --sp-bg-primary: #F7F5EE;
+  --sp-bg-secondary: #EFECE3;
+  --sp-bg-surface: #FDFCF9;
+  --sp-text-primary: #1A1D24;
+  --sp-text-secondary: #524F49;
+  --sp-text-muted: #6E6A61;
+  --sp-border-subtle: #E2DDD0;
+  --sp-cta-bg: #1D212A;
+  --sp-cta-text: #FFFFFF;
+  --sp-accent-coral: #C8433C;
+  --sp-accent-coral-soft: #F9E2DF;
+  --sp-verified-green: #146C43;
+  --sp-verified-green-soft: #DCFCE7;
+  --sp-danger-rose: #BE123C;
+  --sp-radius-shell: 28px;
+  --sp-radius-card: 20px;
+  --sp-radius-pill: 9999px;
+}
+
+.dark {
+  --sp-bg-backdrop: #090B10;
+  --sp-bg-primary: #11141C;
+  --sp-bg-secondary: #171B26;
+  --sp-bg-surface: #1E2330;
+  --sp-text-primary: #F5F2EB;
+  --sp-text-secondary: #B8B2A6;
+  --sp-text-muted: #8E887C;
+  --sp-border-subtle: #282E3E;
+  --sp-cta-bg: #F5F2EB;
+  --sp-cta-text: #11141C;
+  --sp-accent-coral: #DF5A53;
+  --sp-accent-coral-soft: #2D1819;
+  --sp-verified-green: #4ADE80;
+  --sp-verified-green-soft: #0D2818;
+  --sp-danger-rose: #FB7185;
+}
+
+body {
+  background-color: var(--sp-bg-primary);
+  color: var(--sp-text-primary);
+  font-family: var(--font-sans), sans-serif;
+  overflow-x: hidden;
+}
+
+.font-serif-display {
+  font-family: var(--font-serif), Georgia, serif;
+}
+
+.book-cover-shadow {
+  box-shadow:
+    0 22px 34px -10px rgba(24, 22, 20, 0.34),
+    -6px 12px 18px -6px rgba(24, 22, 20, 0.18);
+}
+
+.dark .book-cover-shadow {
+  box-shadow:
+    0 24px 38px -10px rgba(0, 0, 0, 0.65),
+    -6px 12px 20px -6px rgba(0, 0, 0, 0.45);
+}
+
+:focus-visible {
+  outline: 2px solid var(--sp-accent-coral);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    padding: 0 !important;
+  }
+  aside,
+  header,
+  nav,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+  .print-card {
+    break-inside: avoid;
+    border: 1px solid #CCCCCC !important;
+    background: #FFFFFF !important;
+    box-shadow: none !important;
+    margin-bottom: 12pt !important;
+  }
+}
