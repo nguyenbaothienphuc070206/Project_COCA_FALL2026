@@ -85,7 +85,7 @@ import {
 const HeroShelf3D = dynamic(
   () => import('@/src/components/HeroShelf3D').then((m) => m.HeroShelf3D),
   {
-    ssr: true,
+    ssr: false,
     loading: () => (
       <div
         role="status"
@@ -108,7 +108,7 @@ const HeroShelf3D = dynamic(
 const RoadmapPath3D = dynamic(
   () => import('@/src/components/RoadmapPath3D').then((m) => m.RoadmapPath3D),
   {
-    ssr: true,
+    ssr: false,
     loading: () => (
       <div
         role="status"

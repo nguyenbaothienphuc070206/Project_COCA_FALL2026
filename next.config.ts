@@ -1,12 +1,17 @@
 import type { NextConfig } from 'next';
+import { PHASE_DEVELOPMENT_SERVER } from 'next/constants';
 
-const nextConfig: NextConfig = {
-  reactStrictMode: true,
-  compress: true,
-  poweredByHeader: false,
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+export default function getNextConfig(phase: string): NextConfig {
+  const isDevServer = phase === PHASE_DEVELOPMENT_SERVER;
+
+  const nextConfig: NextConfig = {
+    distDir: isDevServer ? '.next/cache/dev' : '.next',
+    reactStrictMode: true,
+    compress: true,
+    poweredByHeader: false,
+    eslint: {
+      ignoreDuringBuilds: true,
+    },
   typescript: {
     ignoreBuildErrors: false,
   },
@@ -84,6 +89,7 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
-};
+  };
 
-export default nextConfig;
+  return nextConfig;
+}
