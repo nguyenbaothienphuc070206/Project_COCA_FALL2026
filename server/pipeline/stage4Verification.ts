@@ -21,6 +21,11 @@ import {
   resolveVerificationSourceBadge,
 } from '../providers/bookVerifier';
 import { getServerEnv } from '../config/env';
+import {
+  logBookVerificationFailure,
+  logBookVerificationSuccess,
+  logExternalSourceOutage,
+} from '../observability/logger';
 
 export const globalVerifiedBookCache = new InMemoryTTLCache<VerifiedBook>(
   AI_CONFIG.cacheTtlMs,
@@ -87,13 +92,16 @@ export async function runStage4Verification(
     openLibraryVerifier?: BookVerifier;
     googleBooksVerifier?: BookVerifier;
     signal?: AbortSignal;
+    requestId?: string;
   },
 ): Promise<VerificationStageOutput> {
   const cache = options?.cache ?? globalVerifiedBookCache;
   const olVerifier = options?.openLibraryVerifier ?? new OpenLibraryVerifier();
   const gbVerifier = options?.googleBooksVerifier ?? new GoogleBooksVerifier();
   const signal = options?.signal;
+  const requestId = options?.requestId ?? 'req_stage4';
   const { googleBooksApiKey } = getServerEnv();
+  const stageStartMs = Date.now();
 
   const cappedCandidates = candidates.slice(
     0,
@@ -120,6 +128,7 @@ export async function runStage4Verification(
         const globalIdx = i + batchIdx;
         if (signal?.aborted) return;
 
+        const itemStartMs = Date.now();
         const cacheKey = buildBookCacheKey(candidate.title, candidate.author);
         const cachedBook = cache.get(cacheKey);
 
@@ -134,6 +143,14 @@ export async function runStage4Verification(
             },
           };
           verifiedBooks.push(hydrated);
+          logBookVerificationSuccess({
+            requestId,
+            durationMs: Date.now() - itemStartMs,
+            source: 'cache',
+            titleSimilarity: hydrated.verification.titleSimilarityScore,
+            authorMatched: true,
+            hasIsbn13: Boolean(hydrated.verification.isbn13),
+          });
           callbacks?.onBookVerified?.(hydrated);
           return;
         }
@@ -167,6 +184,20 @@ export async function runStage4Verification(
           !googleBooksApiKey || gbResult?.failureReason === 'source_unavailable';
         if (olDown && gbDown) {
           sourceUnavailableCount += 1;
+        } else if (olDown) {
+          logExternalSourceOutage({
+            requestId,
+            durationMs: Date.now() - itemStartMs,
+            provider: 'open_library',
+            failClosedTriggered: false,
+          });
+        } else if (gbResult?.failureReason === 'source_unavailable') {
+          logExternalSourceOutage({
+            requestId,
+            durationMs: Date.now() - itemStartMs,
+            provider: 'google_books',
+            failClosedTriggered: false,
+          });
         }
 
         const isVerified = olResult.matched || Boolean(gbResult?.matched);
@@ -191,9 +222,12 @@ export async function runStage4Verification(
             timestampIso: new Date().toISOString(),
           };
           rejectedCandidates.push(rejectedLog);
-          console.info(
-            `[INFO][Stage4Verification] Rejected candidate="${candidate.title}" author="${candidate.author}" reason=${primaryFailureReason}`,
-          );
+          logBookVerificationFailure({
+            requestId,
+            durationMs: Date.now() - itemStartMs,
+            failureReason: primaryFailureReason,
+            titleSimilarity: bestSim,
+          });
           callbacks?.onBookRemoved?.(rejectedLog);
           return;
         }
@@ -290,6 +324,19 @@ export async function runStage4Verification(
 
         cache.set(cacheKey, verifiedBook);
         verifiedBooks.push(verifiedBook);
+        logBookVerificationSuccess({
+          requestId,
+          durationMs: Date.now() - itemStartMs,
+          source:
+            olResult.matched && gbResult?.matched
+              ? 'open_library+google_books'
+              : olResult.matched
+                ? 'open_library'
+                : 'google_books',
+          titleSimilarity: finalSimilarity,
+          authorMatched: Boolean(finalSurname),
+          hasIsbn13: Boolean(finalIsbn),
+        });
         callbacks?.onBookVerified?.(verifiedBook);
       }),
     );
@@ -299,6 +346,15 @@ export async function runStage4Verification(
     totalNetworkChecked > 0 &&
     sourceUnavailableCount === totalNetworkChecked &&
     verifiedBooks.length === 0;
+
+  if (bothSourcesUnavailable) {
+    logExternalSourceOutage({
+      requestId,
+      durationMs: Date.now() - stageStartMs,
+      provider: 'both_catalogs',
+      failClosedTriggered: true,
+    });
+  }
 
   return {
     verifiedBooks,

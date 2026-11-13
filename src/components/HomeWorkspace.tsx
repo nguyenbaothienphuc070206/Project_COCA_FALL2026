@@ -85,7 +85,7 @@ import {
 const HeroShelf3D = dynamic(
   () => import('@/src/components/HeroShelf3D').then((m) => m.HeroShelf3D),
   {
-    ssr: false,
+    ssr: true,
     loading: () => (
       <div
         role="status"
@@ -108,7 +108,7 @@ const HeroShelf3D = dynamic(
 const RoadmapPath3D = dynamic(
   () => import('@/src/components/RoadmapPath3D').then((m) => m.RoadmapPath3D),
   {
-    ssr: false,
+    ssr: true,
     loading: () => (
       <div
         role="status"
@@ -263,6 +263,7 @@ export function HomeWorkspace({
   const [dismissUndoState, setDismissUndoState] =
     useState<DismissUndoBannerState | null>(null);
   const [isOffline, setIsOffline] = useState<boolean>(false);
+  const [isColdStartSlow, setIsColdStartSlow] = useState<boolean>(false);
 
   const sessionDismissedIdsRef = useRef<Set<string>>(new Set());
   const sessionDismissedBooksRef = useRef<VerifiedBook[]>([]);
@@ -296,6 +297,17 @@ export function HomeWorkspace({
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [dismissUndoState]);
+
+  // Phát hiện Cold Start chậm (> 2.5 giây chưa có sách đầu tiên) để hiện thông báo & nút Thử lại thân thiện
+  useEffect(() => {
+    if (status !== 'loading' || streamingBooks.length > 0) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setIsColdStartSlow(true);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [status, streamingBooks.length]);
 
   const mergeIntoClientVerifiedPool = useCallback(
     (newBooks: readonly VerifiedBook[]) => {
@@ -334,6 +346,7 @@ export function HomeWorkspace({
       const mockToUse = options?.mockFlag ?? false;
 
       setStatus('loading');
+      setIsColdStartSlow(false);
       setActiveStage('searching');
       setErrorDetailMessage(null);
       setStreamingBooks([]);
@@ -538,6 +551,11 @@ export function HomeWorkspace({
 
   const handleApplyRefinementText = async (rawText: string) => {
     if (!recommendationSet) return;
+    const { wasTruncated } = sanitizeRefinementInput(rawText);
+    const parsed = parseRefinementTextDeterministic(rawText);
+    const merged = mergeRefinementAdjustments(activeAdjustment, parsed);
+    applyLocalRefinementFallback(merged, wasTruncated);
+
     setIsRefining(true);
     try {
       const apiRes = await refineRecommendations(recommendationSet.id, {
@@ -555,18 +573,12 @@ export function HomeWorkspace({
         setActiveAdjustment(apiRes.adjustment);
         setKeptPreviousNotice(apiRes.keptPreviousBecauseEmpty);
         setTruncatedNotice(apiRes.wasTruncated);
-        return;
       }
     } catch {
-      // Fallback sang bộ tái xếp hạng cục bộ nếu offline
+      // Đã áp dụng bộ tái xếp hạng cục bộ ở trên
     } finally {
       setIsRefining(false);
     }
-
-    const { wasTruncated } = sanitizeRefinementInput(rawText);
-    const parsed = parseRefinementTextDeterministic(rawText);
-    const merged = mergeRefinementAdjustments(activeAdjustment, parsed);
-    applyLocalRefinementFallback(merged, wasTruncated);
   };
 
   const handleRemoveRefinementChip = async (chipId: string) => {
@@ -638,33 +650,6 @@ export function HomeWorkspace({
       targetBook,
     ];
 
-    let replacementFound: VerifiedBook | null = null;
-
-    if (recommendationSet) {
-      try {
-        const apiRes = await dismissRecommendationBook(recommendationSet.id, {
-          bookId,
-          useMockMode,
-        });
-        if (apiRes) {
-          replacementFound = apiRes.replacementBook ?? null;
-          setRecommendationSet(apiRes.recommendationSet);
-          if (apiRes.recommendationSet.books.length === 0) {
-            setStatus('empty');
-          }
-          setDismissUndoState({
-            dismissedBook: targetBook,
-            replacementBook: replacementFound,
-            previousBooksSnapshot: previousSnapshot,
-            secondsLeft: 8,
-          });
-          return;
-        }
-      } catch {
-        // Fallback cục bộ bên dưới
-      }
-    }
-
     const prevIds = new Set(previousSnapshot.map((b) => b.id));
     const reranked = applyRefinementAndDismissToPool({
       verifiedPool: sessionVerifiedPoolRef.current,
@@ -676,7 +661,8 @@ export function HomeWorkspace({
       maxResults: Math.max(1, previousSnapshot.length),
     });
 
-    replacementFound = reranked.find((b) => !prevIds.has(b.id)) ?? null;
+    const replacementFound =
+      reranked.find((b) => !prevIds.has(b.id)) ?? null;
 
     setRecommendationSet((prev) => {
       if (!prev) return null;
@@ -699,6 +685,27 @@ export function HomeWorkspace({
       previousBooksSnapshot: previousSnapshot,
       secondsLeft: 8,
     });
+
+    if (recommendationSet) {
+      try {
+        const apiRes = await dismissRecommendationBook(recommendationSet.id, {
+          bookId,
+          useMockMode,
+        });
+        if (apiRes && apiRes.replacementBook) {
+          setDismissUndoState((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  replacementBook: apiRes.replacementBook ?? prev.replacementBook,
+                }
+              : null,
+          );
+        }
+      } catch {
+        // Đã cập nhật trạng thái cục bộ ở trên
+      }
+    }
   };
 
   const handleUndoDismiss = async () => {
@@ -710,24 +717,6 @@ export function HomeWorkspace({
       (b) => b.id !== dismissedBook.id,
     );
     setDismissUndoState(null);
-
-    if (recommendationSet) {
-      try {
-        const apiRes = await dismissRecommendationBook(recommendationSet.id, {
-          bookId: dismissedBook.id,
-          undo: true,
-          useMockMode,
-        });
-        if (apiRes?.recommendationSet) {
-          setRecommendationSet(apiRes.recommendationSet);
-          setStatus('success');
-          return;
-        }
-      } catch {
-        // Fallback khôi phục từ snapshot
-      }
-    }
-
     setRecommendationSet((prev) => {
       if (!prev) return null;
       return {
@@ -740,6 +729,18 @@ export function HomeWorkspace({
       };
     });
     setStatus('success');
+
+    if (recommendationSet) {
+      try {
+        await dismissRecommendationBook(recommendationSet.id, {
+          bookId: dismissedBook.id,
+          undo: true,
+          useMockMode,
+        });
+      } catch {
+        // Đã khôi phục từ snapshot ở trên
+      }
+    }
   };
 
   // === PHASE 4: MY SHELF HANDLERS (NO DUPLICATES + REORDERING) ===
@@ -1044,19 +1045,85 @@ export function HomeWorkspace({
                 />
               )}
 
-              {/* LOADING SKELETON */}
+              {/* LOADING SKELETON & COLD-START FRIENDLY RETRY */}
               {status === 'loading' && rawDisplayedBooks.length === 0 && (
                 <section
                   aria-busy="true"
+                  data-testid="cold-start-loading-skeleton"
                   className="rounded-[22px] border border-[#E2DDD0] dark:border-[#282E3E] bg-[#FDFCF9] dark:bg-[#1E2330] p-6 space-y-4"
                 >
-                  <p className="text-sm font-bold text-[#C8433C] dark:text-[#DF5A53]">
-                    {t.states.loadingTitle}
-                  </p>
-                  <p className="text-xs text-[#524F49] dark:text-[#B8B2A6]">
-                    {t.states.loadingSubtitle}
-                  </p>
-                  <div className="grid grid-cols-1 gap-4 pt-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold text-[#C8433C] dark:text-[#DF5A53]">
+                        {t.states.loadingTitle}
+                      </p>
+                      <p className="text-xs text-[#524F49] dark:text-[#B8B2A6]">
+                        {t.states.loadingSubtitle}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void executePipelineSearch(preferences, {
+                          outageFlag: simulateOutage,
+                          mockFlag: useMockMode,
+                        });
+                      }}
+                      className="min-h-[38px] px-4 py-1.5 rounded-full border border-[#E2DDD0] dark:border-[#282E3E] bg-[#F7F5EE] dark:bg-[#11141C] text-xs font-semibold text-[#1A1D24] dark:text-[#F5F2EB] inline-flex items-center gap-1.5 hover:border-[#C8433C] transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>
+                        {locale === 'vi'
+                          ? 'Thử lại nếu phản hồi chậm'
+                          : 'Retry if slow (Cold Start)'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {isColdStartSlow && (
+                    <div
+                      role="status"
+                      data-testid="cold-start-slow-banner"
+                      className="rounded-2xl border border-[#C8433C]/30 bg-[#F9E2DF]/60 dark:bg-[#2D1819]/60 p-4 flex flex-wrap items-center justify-between gap-3 text-xs text-[#1A1D24] dark:text-[#F5F2EB]"
+                    >
+                      <div className="space-y-0.5 max-w-xl">
+                        <p className="font-bold text-[#C8433C] dark:text-[#DF5A53]">
+                          {locale === 'vi'
+                            ? 'Máy chủ đang khởi động từ trạng thái nghỉ (Cold Start)...'
+                            : 'Waking up server instance (Cold Start)...'}
+                        </p>
+                        <p className="text-[#524F49] dark:text-[#B8B2A6]">
+                          {locale === 'vi'
+                            ? 'Yêu cầu kiểm chứng đầu tiên đang mất nhiều thời gian hơn bình thường. Bạn có thể bấm Thử lại ngay hoặc xem trước bằng Dữ liệu mẫu.'
+                            : 'The first catalog verification call is taking longer than usual. You can retry immediately or explore verified sample data while it warms up.'}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void executePipelineSearch(preferences, {
+                              outageFlag: false,
+                              mockFlag: useMockMode,
+                            });
+                          }}
+                          className="min-h-[38px] px-4 py-1.5 rounded-full bg-[#C8433C] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>{t.states.retryBtn}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleLoadSampleData}
+                          className="min-h-[38px] px-4 py-1.5 rounded-full bg-[#1D212A] dark:bg-[#F5F2EB] text-white dark:text-[#11141C] text-xs font-semibold cursor-pointer"
+                        >
+                          {t.states.emptyActionBtn}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-4 pt-2 animate-pulse">
                     {[1, 2].map((sk) => (
                       <div
                         key={sk}

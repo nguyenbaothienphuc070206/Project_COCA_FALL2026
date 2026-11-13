@@ -23,12 +23,21 @@ import { runStage3CandidateExtraction } from './stage3CandidateExtraction';
 import { runStage4Verification } from './stage4Verification';
 import { runStage5And6RankingAndRoadmap } from './stage5RankingAndExplanation';
 import { saveRecommendationSetState } from '../store/recommendationStore';
+import {
+  logBookVerificationFailure,
+  logBookVerificationSuccess,
+  logExternalSourceOutage,
+  logLlmCallLatency,
+  logStructuredEvent,
+  logTimeToFirstBook,
+} from '../observability/logger';
 
 export interface PipelineRunOptions {
   forceMockMode?: boolean;
   simulateOutage?: boolean;
   onEvent?: (event: PipelineSSEEvent) => void;
   signal?: AbortSignal;
+  requestId?: string;
 }
 
 /**
@@ -156,11 +165,21 @@ export async function executeRecommendationPipeline(
   const env = getServerEnv();
   const useMock = Boolean(options?.forceMockMode || env.mockModeEnv);
   const signal = options?.signal;
+  const requestId = options?.requestId || recId;
+  const pipelineStartMs = Date.now();
+  let loggedFirstBook = false;
+
   const emit = (ev: PipelineSSEEvent) => {
     options?.onEvent?.(ev);
   };
 
   if (options?.simulateOutage) {
+    logExternalSourceOutage({
+      requestId,
+      durationMs: Date.now() - pipelineStartMs,
+      provider: 'both_catalogs',
+      failClosedTriggered: true,
+    });
     emit({
       type: 'error',
       code: 'SOURCE_OUTAGE_FAIL_CLOSED',
@@ -241,6 +260,22 @@ export async function executeRecommendationPipeline(
     for (const b of mockBooks) {
       if (signal?.aborted) throw new Error('ABORTED');
       verifiedBooks.push(b);
+      if (!loggedFirstBook) {
+        loggedFirstBook = true;
+        logTimeToFirstBook({
+          requestId,
+          durationMs: Date.now() - pipelineStartMs,
+          isMockMode: true,
+        });
+      }
+      logBookVerificationSuccess({
+        requestId,
+        durationMs: Date.now() - pipelineStartMs,
+        source: 'open_library+google_books',
+        titleSimilarity: b.verification.titleSimilarityScore,
+        authorMatched: true,
+        hasIsbn13: Boolean(b.verification.isbn13),
+      });
       persistCurrentState('verifying', true);
       emit({
         type: 'book_verified',
@@ -252,6 +287,12 @@ export async function executeRecommendationPipeline(
     for (const r of mockRejected) {
       if (signal?.aborted) throw new Error('ABORTED');
       rejectedCandidates.push(r);
+      logBookVerificationFailure({
+        requestId,
+        durationMs: Date.now() - pipelineStartMs,
+        failureReason: r.failureReasonCode ?? 'not_found',
+        titleSimilarity: 0.42,
+      });
       persistCurrentState('verifying', true);
       emit({
         type: 'book_removed',
@@ -275,6 +316,20 @@ export async function executeRecommendationPipeline(
     const finalMockSet = RecommendationSetSchema.parse(
       persistCurrentState('completed', true),
     );
+    logStructuredEvent({
+      severity: 'INFO',
+      event: 'PIPELINE_STAGE_OUTCOME',
+      requestId,
+      stage: 'pipeline_complete',
+      durationMs: Date.now() - pipelineStartMs,
+      outcome: 'success',
+      metrics: {
+        candidatesFound,
+        candidatesVerified: verifiedBooks.length,
+        candidatesRemoved: rejectedCandidates.length,
+        isMockMode: true,
+      },
+    });
     emit({
       type: 'done',
       recommendationSet: finalMockSet,
@@ -291,14 +346,32 @@ export async function executeRecommendationPipeline(
     warnings: env.missingSecretWarnings,
   });
 
+  const stage1StartMs = Date.now();
   const queryProfile = await runStage1QueryUnderstanding(prefs, undefined, signal);
+  logLlmCallLatency({
+    requestId,
+    stage: 'stage1_query_understanding',
+    model: env.geminiModel,
+    durationMs: Date.now() - stage1StartMs,
+    outcome: 'success',
+    inputCharCount: prefs.topic.length,
+  });
   queriesExecuted = queryProfile.searchQueries;
 
   // Stage 2: SearchProvider (Gemini + Google Search Grounding)
+  const stage2StartMs = Date.now();
   const searchResult = await defaultSearchProvider.searchBooksForProfile(
     queryProfile,
     signal,
   );
+  logLlmCallLatency({
+    requestId,
+    stage: 'stage2_search_grounding',
+    model: env.geminiModel,
+    durationMs: Date.now() - stage2StartMs,
+    outcome: 'success',
+    inputCharCount: queriesExecuted.join(' ').length,
+  });
 
   // Stage 3: Candidate Extraction (Zod-validated, retry once, deduped, capped at 20)
   emit({
@@ -308,6 +381,7 @@ export async function executeRecommendationPipeline(
     queries: queriesExecuted,
   });
 
+  const stage3StartMs = Date.now();
   let candidates: ExtractedCandidate[] = await runStage3CandidateExtraction(
     queryProfile,
     searchResult.synthesizedSearchNotes,
@@ -315,6 +389,14 @@ export async function executeRecommendationPipeline(
     undefined,
     signal,
   );
+  logLlmCallLatency({
+    requestId,
+    stage: 'stage3_candidate_extraction',
+    model: env.geminiModel,
+    durationMs: Date.now() - stage3StartMs,
+    outcome: candidates.length > 0 ? 'success' : 'fallback',
+    inputCharCount: searchResult.synthesizedSearchNotes.length,
+  });
 
   // Nếu LLM chạm ngưỡng Quota 429 hoặc trả về rỗng, nạp danh sách ứng viên thô (gồm cả ứng viên thật và ứng viên sai lệch) để Stage 4 kiểm chứng trực tiếp qua Open Library API thật
   if (candidates.length === 0) {
@@ -371,6 +453,14 @@ export async function executeRecommendationPipeline(
     {
       onBookVerified: (book) => {
         verifiedBooks.push(book);
+        if (!loggedFirstBook) {
+          loggedFirstBook = true;
+          logTimeToFirstBook({
+            requestId,
+            durationMs: Date.now() - pipelineStartMs,
+            isMockMode: false,
+          });
+        }
         persistCurrentState('verifying', false);
         emit({
           type: 'book_verified',
@@ -388,7 +478,7 @@ export async function executeRecommendationPipeline(
         });
       },
     },
-    { signal },
+    { signal, requestId },
   );
 
   if (verificationOutput.bothSourcesUnavailable) {
@@ -415,6 +505,7 @@ export async function executeRecommendationPipeline(
     stats: buildCurrentStats('building_path'),
   });
 
+  const stage5StartMs = Date.now();
   const rankedBooks = await runStage5And6RankingAndRoadmap(
     verifiedBooks,
     queryProfile,
@@ -422,6 +513,14 @@ export async function executeRecommendationPipeline(
     undefined,
     signal,
   );
+  logLlmCallLatency({
+    requestId,
+    stage: 'stage5_mmr_ranking',
+    model: env.geminiModel,
+    durationMs: Date.now() - stage5StartMs,
+    outcome: 'success',
+    inputCharCount: verifiedBooks.length * 120,
+  });
 
   verifiedBooks.length = 0;
   verifiedBooks.push(...rankedBooks);
@@ -440,6 +539,20 @@ export async function executeRecommendationPipeline(
   });
 
   saveRecommendationSetState(finalLiveSet);
+  logStructuredEvent({
+    severity: 'INFO',
+    event: 'PIPELINE_STAGE_OUTCOME',
+    requestId,
+    stage: 'pipeline_complete',
+    durationMs: Date.now() - pipelineStartMs,
+    outcome: 'success',
+    metrics: {
+      candidatesFound,
+      candidatesVerified: verifiedBooks.length,
+      candidatesRemoved: rejectedCandidates.length,
+      isMockMode: false,
+    },
+  });
   emit({
     type: 'done',
     recommendationSet: finalLiveSet,

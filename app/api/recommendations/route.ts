@@ -33,6 +33,10 @@ import {
   parseAndValidateJsonBody,
   verifyBotProtectionToken,
 } from '@/server/security/securityControls';
+import {
+  logBudgetCircuitBreakerTrip,
+  logRateLimit429,
+} from '@/server/observability/logger';
 
 export async function POST(req: NextRequest) {
   const requestId = resolveRequestId(req);
@@ -47,6 +51,11 @@ export async function POST(req: NextRequest) {
       1,
       Math.ceil(ipRateCheck.retryAfterMs / 1000),
     );
+    logRateLimit429({
+      requestId,
+      limiterScope: 'per_ip_recommendations',
+      retryAfterSeconds,
+    });
     return apiJsonError({
       code: 'RATE_LIMITED',
       message: `Rate limit exceeded. Please wait ${retryAfterSeconds} seconds before requesting another reading roadmap.`,
@@ -62,6 +71,11 @@ export async function POST(req: NextRequest) {
       1,
       Math.ceil(globalRateCheck.retryAfterMs / 1000),
     );
+    logRateLimit429({
+      requestId,
+      limiterScope: 'global_recommendations',
+      retryAfterSeconds,
+    });
     return apiJsonError({
       code: 'RATE_LIMITED',
       message: `Server is experiencing high traffic. Please wait ${retryAfterSeconds} seconds before retrying.`,
@@ -116,6 +130,14 @@ export async function POST(req: NextRequest) {
     const budgetStatus = globalGeminiBudgetCircuitBreaker.getStatus();
     if (!budgetStatus.allowed) {
       const code = budgetStatus.reason || 'DAILY_BUDGET_EXHAUSTED';
+      logBudgetCircuitBreakerTrip({
+        requestId,
+        tripReason: code,
+        callsUsedToday: budgetStatus.callsUsedToday,
+        dailyBudgetLimit: budgetStatus.dailyBudgetLimit,
+        consecutiveFailures: budgetStatus.consecutiveFailures,
+        retryAfterSeconds: budgetStatus.retryAfterSeconds,
+      });
       const friendlyMsg =
         code === 'CIRCUIT_BREAKER_OPEN'
           ? 'The AI service is temporarily busy (circuit breaker open). Please try again in a moment or switch to Sample Mode.'
@@ -161,6 +183,7 @@ export async function POST(req: NextRequest) {
             simulateOutage,
             onEvent: sendEvent,
             signal: scopedSignal,
+            requestId,
           });
         } catch (err) {
           if (!scopedSignal.aborted) {
@@ -208,6 +231,7 @@ export async function POST(req: NextRequest) {
       forceMockMode,
       simulateOutage,
       signal: scopedSignal,
+      requestId,
     });
     return apiJsonSuccess(finalSet, { status: 200, requestId });
   } catch (err) {

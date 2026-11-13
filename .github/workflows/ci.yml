@@ -1,0 +1,49 @@
+# Tính năng: GitHub Actions CI Workflow cho ShelfPath (Phase 10)
+# Trường hợp sử dụng: Chạy tự động lint, typecheck, test, build và audit khi đẩy mã nguồn hoặc tạo Pull Request sau khi xuất mã nguồn.
+
+name: ShelfPath CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  MOCK_MODE: "true"
+  EVAL_ENABLED: "true"
+  SITE_URL: "https://shelfpath.example.org"
+
+jobs:
+  verify:
+    name: Lint, Typecheck, Test, Build & Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint (lint)
+        run: npm run lint
+
+      - name: Run TypeScript typecheck (typecheck)
+        run: npm run typecheck
+
+      - name: Run Unit & Integration Tests (test)
+        run: npm run test
+
+      - name: Build production Next.js bundle (build)
+        run: npm run build
+
+      - name: Run npm security audit (audit)
+        run: npm run audit
